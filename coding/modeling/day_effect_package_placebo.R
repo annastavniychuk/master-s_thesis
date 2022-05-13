@@ -1,0 +1,377 @@
+# devtools::install_github("nipfpmf/eventstudies", ref="master")
+library('eventstudies')
+library('dplyr')
+library('stringr')
+
+# Подгружаем датасет с новостями
+{
+# news <- read.csv("~/Documents/master's_thesis/coding/parsing/finam/news_filtered.csv")
+news <- read.csv("~/Documents/master's_thesis/coding/parsing/finam/news_dummy_filter_upd.csv", header=T)
+news <- news %>% filter(FAS == 1)
+news <- news %>% filter(event_predupr == 1 | event_predost == 1 | event_delo == 1 | event_resh_predp == 1)
+#news$time <- paste(news$article_date, news$article_time)
+#news$time <- as.POSIXlt(news$time, format="%d.%m.%Y %H:%M")
+  
+# news$time <- as.POSIXlt(news$article_date, format="%d.%m.%Y")
+news$time <- as.Date(news$article_date, format="%d.%m.%Y")
+
+news$company <- str_replace(news$company, "rosneft", "rosn")
+news$company <- str_replace(news$company, "bashneft-ank-ao", "bane")
+news$company <- str_replace(news$company, "gazprom-neft", "sibn")
+news$company <- str_replace(news$company, "lukoil", "lkoh")
+news$company <- str_replace(news$company, "tatneft-3", "tatn")
+colnames(news)[15] <- 'when'
+colnames(news)[4] <- 'name'
+
+news_predupr <- news %>% filter(event_predupr==1)
+news_predupr <- news_predupr[,c(4,15)]
+news_predost <- news %>% filter(event_predost==1)
+news_predost <- news_predost[,c(4,15)]
+news_delo <- news %>% filter(event_delo==1)
+news_delo <- news_delo[,c(4,15)]
+# news_resh <- news %>% filter(event_resh=='True')
+# news_resh <- news_resh[,c(4,15)]
+# news_predp <- news %>% filter(event_predp=='True')
+# news_predp <- news_predp[,c(4,15)]
+news_resh_predp <- news %>% filter(event_resh_predp ==1)
+news_resh_predp <- news_resh_predp[,c(4,15)]
+
+set.seed(123)
+delo <- sample(seq(as.Date('2012/01/01'), as.Date('2019/01/01'), by="day"), 6)
+predost <- sample(seq(as.Date('2012/01/01'), as.Date('2019/01/01'), by="day"), 2)
+predupr <- sample(seq(as.Date('2012/01/01'), as.Date('2019/01/01'), by="day"), 9)
+resh_predp <- sample(seq(as.Date('2012/01/01'), as.Date('2019/01/01'), by="day"), 3)
+
+placebo_news_delo <- cbind(news_delo[1], delo)
+colnames(placebo_news_delo)[2] <- 'when'
+placebo_news_predost <- cbind(news_predost[1], predost)
+colnames(placebo_news_predost)[2] <- 'when'
+placebo_news_predupr <- cbind(news_predupr[1], predupr)
+colnames(placebo_news_predupr)[2] <- 'when'
+placebo_news_resh_predp <- cbind(news_resh_predp[1], resh_predp)
+colnames(placebo_news_resh_predp)[2] <- 'when'
+}
+
+# Подгружаем котировки
+{
+stocks_day <- read.csv("~/Documents/master's_thesis/coding/data/stocks/stocks_day.csv")
+stocks_day$time <- as.POSIXlt(stocks_day$time, format="%Y-%m-%d")
+
+dates <- as.data.frame(seq(as.Date("2012-01-01"), as.Date("2022-01-01"), by = "day"))
+colnames(dates)[1] <- 'time'
+
+stocks_day <- left_join(dates, stocks_day, by = c('time'))
+
+stocks_day <- stocks_day[order(stocks_day$time),]
+stocks_day<- stocks_day %>% mutate(BANE.CLOSE = na.locf0(BANE.CLOSE), 
+                                   SIBN.CLOSE = na.locf0(SIBN.CLOSE),
+                                   LKOH.CLOSE = na.locf0(LKOH.CLOSE),
+                                   ROSN.CLOSE = na.locf0(ROSN.CLOSE),
+                                   SNGS.CLOSE = na.locf0(SNGS.CLOSE),
+                                   TATN.CLOSE = na.locf0(TATN.CLOSE),
+                                   IMOEX.CLOSE = na.locf0(IMOEX.CLOSE),
+                                   MOEXOG.CLOSE = na.locf0(MOEXOG.CLOSE)) %>% 
+  mutate(bane = BANE.CLOSE/lag(BANE.CLOSE)-1,
+         sibn = SIBN.CLOSE/lag(SIBN.CLOSE)-1,
+         lkoh = LKOH.CLOSE/lag(LKOH.CLOSE)-1,
+         rosn = ROSN.CLOSE/lag(ROSN.CLOSE)-1,
+         sngs = SNGS.CLOSE/lag(SNGS.CLOSE)-1,
+         tatn = TATN.CLOSE/lag(TATN.CLOSE)-1,
+         imoex = IMOEX.CLOSE/lag(IMOEX.CLOSE)-1,
+         moexog = MOEXOG.CLOSE/lag(MOEXOG.CLOSE)-1)
+
+stocks_day <- stocks_day[-c(1:3),-c(2:9)]
+stocks_day_zoo <- read.zoo(stocks_day[,c(1:7)], format = "%Y-%m-%d")
+imoex <- read.zoo(stocks_day[,c(1,8)], format = "%Y-%m-%d")
+}
+
+# Графички
+{
+{
+es_day_predupr3 <- eventstudy(firm.returns = stocks_day_zoo,
+                 event.list = placebo_news_predupr,
+                 event.window = 3,
+                 type = "marketModel",
+                 to.remap = TRUE,
+                 remap = "cumsum",
+                 inference = TRUE,
+                 inference.strategy = "bootstrap",
+                 model.args = list(market.returns=imoex)) 
+es_day_predupr7 <- eventstudy(firm.returns = stocks_day_zoo,
+                              event.list = placebo_news_predupr,
+                              event.window = 7,
+                              type = "marketModel",
+                              to.remap = TRUE,
+                              remap = "cumsum",
+                              inference = TRUE,
+                              inference.strategy = "bootstrap",
+                              model.args = list(market.returns=imoex)) 
+es_day_predupr15 <- eventstudy(firm.returns = stocks_day_zoo,
+                              event.list = placebo_news_predupr,
+                              event.window = 15,
+                              type = "marketModel",
+                              to.remap = TRUE,
+                              remap = "cumsum",
+                              inference = TRUE,
+                              inference.strategy = "bootstrap",
+                              model.args = list(market.returns=imoex)) 
+par(mai=c(.8,.8,.2,.2), cex=.7)
+plot(es_day_predupr3)     
+plot(es_day_predupr7) 
+plot(es_day_predupr15) 
+
+es_day_predupr_3 <- es_day_predupr3$result
+rownames(es_day_predupr_3) <- c(-2:3)
+es_day_predupr_3 <- as.data.frame(es_day_predupr_3)
+es_day_predupr_3$days_to_event <- rownames(es_day_predupr_3)
+
+es_day_predupr_7 <- es_day_predupr7$result
+rownames(es_day_predupr_7) <- c(-6:7)
+es_day_predupr_7 <- as.data.frame(es_day_predupr_7)
+es_day_predupr_7$days_to_event <- rownames(es_day_predupr_7)
+
+es_day_predupr_15 <- es_day_predupr15$result
+rownames(es_day_predupr_15) <- c(-14:15)
+es_day_predupr_15 <- as.data.frame(es_day_predupr_15)
+es_day_predupr_15$days_to_event <- rownames(es_day_predupr_15)
+
+es_day_predupr_windows <- full_join(es_day_predupr_3, es_day_predupr_7, by = 'days_to_event')
+es_day_predupr_windows <- full_join(es_day_predupr_windows, es_day_predupr_15, by = 'days_to_event')
+
+write.csv(es_day_predupr_windows, 'es_day_predupr_windows.csv')
+}
+
+{
+es_day_predost3 <- eventstudy(firm.returns = stocks_day_zoo,
+                 event.list = placebo_news_predost,
+                 event.window = 3,
+                 type = "marketModel",
+                 to.remap = TRUE,
+                 remap = "cumsum",
+                 inference = TRUE,
+                 inference.strategy = "bootstrap",
+                 model.args = list(market.returns=imoex)) 
+es_day_predost7 <- eventstudy(firm.returns = stocks_day_zoo,
+                              event.list = placebo_news_predost,
+                              event.window = 7,
+                              type = "marketModel",
+                              to.remap = TRUE,
+                              remap = "cumsum",
+                              inference = TRUE,
+                              inference.strategy = "bootstrap",
+                              model.args = list(market.returns=imoex)) 
+es_day_predost15 <- eventstudy(firm.returns = stocks_day_zoo,
+                              event.list = placebo_news_predost,
+                              event.window = 15,
+                              type = "marketModel",
+                              to.remap = TRUE,
+                              remap = "cumsum",
+                              inference = TRUE,
+                              inference.strategy = "bootstrap",
+                              model.args = list(market.returns=imoex)) 
+par(mai=c(.8,.8,.2,.2), cex=.7)
+plot(es_day_predost3)   
+plot(es_day_predost7)   
+plot(es_day_predost15)   
+
+es_day_predost_3 <- es_day_predost3$result
+rownames(es_day_predost_3) <- c(-2:3)
+es_day_predost_3 <- as.data.frame(es_day_predost_3)
+es_day_predost_3$days_to_event <- rownames(es_day_predost_3)
+
+es_day_predost_7 <- es_day_predost7$result
+rownames(es_day_predost_7) <- c(-6:7)
+es_day_predost_7 <- as.data.frame(es_day_predost_7)
+es_day_predost_7$days_to_event <- rownames(es_day_predost_7)
+
+es_day_predost_15 <- es_day_predost15$result
+rownames(es_day_predost_15) <- c(-14:15)
+es_day_predost_15 <- as.data.frame(es_day_predost_15)
+es_day_predost_15$days_to_event <- rownames(es_day_predost_15)
+
+es_day_predost_windows <- full_join(es_day_predost_3, es_day_predost_7, by = 'days_to_event')
+es_day_predost_windows <- full_join(es_day_predost_windows, es_day_predost_15, by = 'days_to_event')
+
+write.csv(es_day_predost_windows, 'es_day_predost_windows.csv')
+}
+  
+{
+es_day_delo3 <- eventstudy(firm.returns = stocks_day_zoo,
+                 event.list = placebo_news_delo,
+                 event.window = 3,
+                 type = "marketModel",
+                 to.remap = TRUE,
+                 remap = "cumsum",
+                 inference = TRUE,
+                 inference.strategy = "bootstrap",
+                 model.args = list(market.returns=imoex)) 
+es_day_delo7 <- eventstudy(firm.returns = stocks_day_zoo,
+                          event.list = placebo_news_delo,
+                          event.window = 7,
+                          type = "marketModel",
+                          to.remap = TRUE,
+                          remap = "cumsum",
+                          inference = TRUE,
+                          inference.strategy = "bootstrap",
+                          model.args = list(market.returns=imoex)) 
+es_day_delo15 <- eventstudy(firm.returns = stocks_day_zoo,
+                          event.list = placebo_news_delo,
+                          event.window = 15,
+                          type = "marketModel",
+                          to.remap = TRUE,
+                          remap = "cumsum",
+                          inference = TRUE,
+                          inference.strategy = "bootstrap",
+                          model.args = list(market.returns=imoex)) 
+par(mai=c(.8,.8,.2,.2), cex=.7)
+plot(es_day_delo3)  
+plot(es_day_delo7)  
+plot(es_day_delo15)  
+
+es_day_delo_3 <- es_day_delo3$result
+rownames(es_day_delo_3) <- c(-2:3)
+es_day_delo_3 <- as.data.frame(es_day_delo_3)
+es_day_delo_3$days_to_event <- rownames(es_day_delo_3)
+
+es_day_delo_7 <- es_day_delo7$result
+rownames(es_day_delo_7) <- c(-6:7)
+es_day_delo_7 <- as.data.frame(es_day_delo_7)
+es_day_delo_7$days_to_event <- rownames(es_day_delo_7)
+
+es_day_delo_15 <- es_day_delo15$result
+rownames(es_day_delo_15) <- c(-14:15)
+es_day_delo_15 <- as.data.frame(es_day_delo_15)
+es_day_delo_15$days_to_event <- rownames(es_day_delo_15)
+
+es_day_delo_windows <- full_join(es_day_delo_3, es_day_delo_7, by = 'days_to_event')
+es_day_delo_windows <- full_join(es_day_delo_windows, es_day_delo_15, by = 'days_to_event')
+
+write.csv(es_day_delo_windows, 'es_day_delo_windows.csv')
+}
+
+{
+es_day_resh_predp3 <- eventstudy(firm.returns = stocks_day_zoo,
+                 event.list = placebo_news_resh_predp,
+                 event.window = 3,
+                 type = "marketModel",
+                 to.remap = TRUE,
+                 remap = "cumsum",
+                 inference = TRUE,
+                 inference.strategy = "bootstrap",
+                 model.args = list(market.returns=imoex)) 
+es_day_resh_predp7 <- eventstudy(firm.returns = stocks_day_zoo,
+                                 event.list = placebo_news_resh_predp,
+                                 event.window = 7,
+                                 type = "marketModel",
+                                 to.remap = TRUE,
+                                 remap = "cumsum",
+                                 inference = TRUE,
+                                 inference.strategy = "bootstrap",
+                                 model.args = list(market.returns=imoex)) 
+es_day_resh_predp15 <- eventstudy(firm.returns = stocks_day_zoo,
+                                 event.list = placebo_news_resh_predp,
+                                 event.window = 15,
+                                 type = "marketModel",
+                                 to.remap = TRUE,
+                                 remap = "cumsum",
+                                 inference = TRUE,
+                                 inference.strategy = "bootstrap",
+                                 model.args = list(market.returns=imoex)) 
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_resh_predp3)  
+plot(es_day_resh_predp7) 
+plot(es_day_resh_predp15) 
+
+es_day_resh_predp_3 <- es_day_resh_predp3$result
+rownames(es_day_resh_predp_3) <- c(-2:3)
+es_day_resh_predp_3 <- as.data.frame(es_day_resh_predp_3)
+es_day_resh_predp_3$days_to_event <- rownames(es_day_resh_predp_3)
+
+es_day_resh_predp_7 <- es_day_resh_predp7$result
+rownames(es_day_resh_predp_7) <- c(-6:7)
+es_day_resh_predp_7 <- as.data.frame(es_day_resh_predp_7)
+es_day_resh_predp_7$days_to_event <- rownames(es_day_resh_predp_7)
+
+es_day_resh_predp_15 <- es_day_resh_predp15$result
+rownames(es_day_resh_predp_15) <- c(-14:15)
+es_day_resh_predp_15 <- as.data.frame(es_day_resh_predp_15)
+es_day_resh_predp_15$days_to_event <- rownames(es_day_resh_predp_15)
+
+es_day_resh_predp_windows <- full_join(es_day_resh_predp_3, es_day_resh_predp_7, by = 'days_to_event')
+es_day_resh_predp_windows <- full_join(es_day_resh_predp_windows, es_day_resh_predp_15, by = 'days_to_event')
+
+write.csv(es_day_resh_predp_windows, 'es_day_resh_predp_windows.csv')
+}
+  
+es_day_windows <- full_join(es_day_predupr_windows, es_day_predost_windows, by = 'days_to_event')
+es_day_windows <- full_join(es_day_windows, es_day_delo_windows, by = 'days_to_event')
+es_day_windows <- full_join(es_day_windows, es_day_resh_predp_windows, by = 'days_to_event')
+write.csv(es_day_windows, 'es_day_windows.csv')
+
+# es_day_predp <- eventstudy(firm.returns = stocks_day_zoo,
+#                  event.list = news_predp,
+#                  event.window = 7,
+#                  type = "marketModel",
+#                  to.remap = TRUE,
+#                  remap = "cumsum",
+#                  inference = TRUE,
+#                  inference.strategy = "bootstrap",
+#                  model.args = list(market.returns=imoex)) 
+# par(mai=c(.8,.8,.2,.2), cex=.7)
+# plot(es_day_predp)  
+}
+
+
+cairo_pdf(file = "es_day_predupr3.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_predupr3) 
+dev.off()
+cairo_pdf(file = "es_day_predupr7.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_predupr7) 
+dev.off()
+cairo_pdf(file = "es_day_predupr15.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_predupr15) 
+dev.off()
+
+cairo_pdf(file = "es_day_predost3.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_predost3) 
+dev.off()
+cairo_pdf(file = "es_day_predost7.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_predost7) 
+dev.off()
+cairo_pdf(file = "es_day_predost15.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_predost15) 
+dev.off()
+
+cairo_pdf(file = "es_day_delo3.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_delo3) 
+dev.off()
+cairo_pdf(file = "es_day_delo7.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_delo7) 
+dev.off()
+cairo_pdf(file = "es_day_delo15.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_delo15) 
+dev.off()
+
+cairo_pdf(file = "es_day_resh_predp3.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_resh_predp3) 
+dev.off()
+cairo_pdf(file = "es_day_resh_predp7.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_resh_predp7) 
+dev.off()
+cairo_pdf(file = "es_day_resh_predp15.pdf", width = 10, height = 7)
+par(mai=c(.8,.8,.2,.2), cex=.9)
+plot(es_day_resh_predp15) 
+dev.off()
+
+
